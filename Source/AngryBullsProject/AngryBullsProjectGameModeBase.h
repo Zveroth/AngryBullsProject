@@ -14,4 +14,8 @@ class ANGRYBULLSPROJECT_API AAngryBullsProjectGameModeBase : public AGameModeBas
 {
 	GENERATED_BODY()
 	
+
+public:
+
+	AAngryBullsProjectGameModeBase();
 };
