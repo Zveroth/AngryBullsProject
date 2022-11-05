@@ -8,15 +8,9 @@
 
 
 
-//UENUM()
-//enum class ESelectionState : uint8
-//{
-//	NotSelected,
-//	Selected
-//};
-
 DECLARE_DELEGATE(FOnSelectionStateChanged);
 
+//Component used distinguish actors that can be selected.
 UCLASS( ClassGroup=(Selection), meta=(BlueprintSpawnableComponent) )
 class ANGRYBULLSPROJECT_API USelectionComponent : public UActorComponent
 {

@@ -9,6 +9,8 @@
 
 
 class USelectionComponent;
+class UOrderBase;
+class AOrderQueueAIController;
 
 UCLASS()
 class ANGRYBULLSPROJECT_API APlayerPawn : public APawn
@@ -30,6 +32,13 @@ public:
 	void RemoveFromSelection(USelectionComponent* SelectionComp);
 	void ClearSelection();
 
+	void SendOrder(UOrderBase* OrderTemplate);
+	void SendOrders(const TArray<UOrderBase*>& OrderTemplates);
+
+	//Widget callback for priority confirmation
+	UFUNCTION(BlueprintCallable, Category = "Order Handling")
+		void ConfirmPriority(int32 Priority);
+
 private:
 
 	void Select();
@@ -43,12 +52,21 @@ private:
 
 	void ProcessMovement(float DeltaTime);
 
-	void SendLocationOrder(const FVector& TargetLocation);
+	bool IsAnyShiftDown(APlayerController* PlayerController = nullptr) const;
+	bool IsAnyControlDown(APlayerController* PlayerController = nullptr) const;
+
+	AOrderQueueAIController* GetControllerFromSelection(uint32 Index) const;
+	AOrderQueueAIController* GetControllerFromSelectionComponent(USelectionComponent* SelectionComp) const;
+
+	void DisplayPriorityWidgetForOrders(const TArray<UOrderBase*>& Orders);
 
 protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
 		float ScrollSpeed;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "User Interface")
+		TSubclassOf<UUserWidget> PrioritySelectionWidgetClass;
 
 private:
 
@@ -62,4 +80,8 @@ private:
 		TArray<USelectionComponent*> m_Selection;
 
 	FVector2D m_MovementInput;
+
+	UPROPERTY()
+		TArray<UOrderBase*> m_PriorityPendingOrders;
+	bool m_bSelectingPriority;
 };

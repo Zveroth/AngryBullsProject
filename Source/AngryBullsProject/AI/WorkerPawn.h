@@ -19,6 +19,8 @@ public:
 	// Sets default values for this pawn's properties
 	AWorkerPawn();
 
+	void SetDancing(bool bDancing);
+
 protected:
 
 	virtual void BeginPlay() override;
@@ -44,9 +46,9 @@ private:
 	UPROPERTY(VisibleAnywhere)
 		class USelectionComponent* Selection;
 
-	UPROPERTY(VisibleAnywhere)
-		class UFloatingPawnMovement* PawnMovement;
-
 	UPROPERTY()
 		UMaterialInstanceDynamic* m_WorkerMeshMat;
+
+	bool m_bDancing;
+	FTimerHandle m_DanceTimer;
 };

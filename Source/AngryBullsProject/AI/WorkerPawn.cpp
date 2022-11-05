@@ -2,9 +2,9 @@
 #include "AI/WorkerPawn.h"
 #include "Interaction/InteractionSphereComponent.h"
 #include "Selection/SelectionComponent.h"
-#include "GameFramework/FloatingPawnMovement.h"
 #include "Player/PlayerPawn.h"
 #include "ColorScheme/ColorSchemeSettings.h"
+#include "AI/Orders/OrderMoveToActor.h"
 
 
 
@@ -27,9 +27,8 @@ AWorkerPawn::AWorkerPawn()
 	Selection = CreateDefaultSubobject<USelectionComponent>(TEXT("Selection"));
 	Selection->OnSelectionStateChanged.BindUObject(this, &AWorkerPawn::OnSelectionStateChanged);
 
-	PawnMovement = CreateDefaultSubobject<UFloatingPawnMovement>(TEXT("PawnMovement"));
-
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+	m_bDancing = false;
 }
 
 void AWorkerPawn::BeginPlay()
@@ -60,7 +59,7 @@ void AWorkerPawn::OnDeselect(APlayerPawn* PlayerPawn)
 
 void AWorkerPawn::OnInteract(APlayerPawn* PlayerPawn)
 {
-
+	PlayerPawn->SendOrder(UOrderMoveToActor::Create(PlayerPawn, this));
 }
 
 void AWorkerPawn::OnSelectionStateChanged()
@@ -70,8 +69,34 @@ void AWorkerPawn::OnSelectionStateChanged()
 
 void AWorkerPawn::RefreshMeshColor()
 {
-	if (USelectionColorScheme* ColorScheme = UColorSchemeSettings::GetColorScheme())
+	FLinearColor FinalColor;
+	if (m_bDancing)
 	{
-		m_WorkerMeshMat->SetVectorParameterValue(FName("Color"), ((Selection->IsSelected()) ? ColorScheme->SelectedUnit : ColorScheme->DeselectedUnit));
+		FinalColor.R = FMath::FRandRange(0.1f, 1.0f);
+		FinalColor.G = FMath::FRandRange(0.1f, 1.0f);
+		FinalColor.B = FMath::FRandRange(0.1f, 1.0f);
+		FinalColor.A = 1.0f;
+	}
+	else if (USelectionColorScheme* ColorScheme = UColorSchemeSettings::GetColorScheme())
+	{
+		FinalColor = (Selection->IsSelected()) ? ColorScheme->SelectedUnit : ColorScheme->DeselectedUnit;
+	}
+
+	m_WorkerMeshMat->SetVectorParameterValue(FName("Color"), FinalColor);
+}
+
+void AWorkerPawn::SetDancing(bool bDancing)
+{
+	m_bDancing = bDancing;
+
+	RefreshMeshColor();
+
+	if (m_bDancing)
+	{
+		GetWorldTimerManager().SetTimer(m_DanceTimer, this, &AWorkerPawn::RefreshMeshColor, 0.25f, true);
+	}
+	else
+	{
+		GetWorldTimerManager().ClearTimer(m_DanceTimer);
 	}
 }

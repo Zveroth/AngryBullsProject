@@ -11,6 +11,7 @@
 
 class FPrimitiveSceneProxy;
 
+//This class is a copy of USphereComponent but the base class needed to be changed for interaction.
 UCLASS()
 class ANGRYBULLSPROJECT_API UInteractionSphereComponent : public UInteractionShapeComponent
 {

@@ -4,7 +4,9 @@
 #include "Camera/CameraComponent.h"
 #include "Interaction/InteractionShapeComponent.h"
 #include "Selection/SelectionComponent.h"
-#include "AIController.h"
+#include "AI/OrderQueueAIController.h"
+#include "AI/Orders/OrderMoveToLocation.h"
+#include "Blueprint/UserWidget.h"
 
 
 
@@ -25,10 +27,11 @@ APlayerPawn::APlayerPawn()
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
 	Camera->SetupAttachment(CameraArm, USpringArmComponent::SocketName);
 	Camera->SetProjectionMode(ECameraProjectionMode::Orthographic);
-	Camera->SetOrthoWidth(4096.0f);
+	Camera->SetOrthoWidth(2048.0f);
 
 	ScrollSpeed = 1000.0f;
 	m_MovementInput = FVector2D::ZeroVector;
+	m_bSelectingPriority = false;
 }
 
 // Called every frame
@@ -86,13 +89,19 @@ void APlayerPawn::ProcessMovement(float DeltaTime)
 
 void APlayerPawn::Select()
 {
+	//Block input when selecting priority
+	if (m_bSelectingPriority)
+	{
+		return;
+	}
+
 	FHitResult HitResult;
-	const APlayerController* PlayerController = GetPlayerController();
+	APlayerController* PlayerController = GetPlayerController();
 	PlayerController->GetHitResultUnderCursor(ECollisionChannel::ECC_GameTraceChannel1, false, HitResult);
 
 	if (UInteractionShapeComponent* InteractionComp = Cast<UInteractionShapeComponent>(HitResult.GetComponent()))
 	{
-		if (PlayerController->IsInputKeyDown(EKeys::LeftControl) || PlayerController->IsInputKeyDown(EKeys::RightControl))
+		if (IsAnyControlDown(PlayerController))
 		{
 			InteractionComp->Deselect(this);
 		}
@@ -101,7 +110,7 @@ void APlayerPawn::Select()
 			InteractionComp->Select(this);
 		}
 	}
-	else if (!PlayerController->IsInputKeyDown(EKeys::LeftShift) && !PlayerController->IsInputKeyDown(EKeys::RightShift))
+	else if (!IsAnyShiftDown(PlayerController))
 	{
 		ClearSelection();
 	}
@@ -109,8 +118,14 @@ void APlayerPawn::Select()
 
 void APlayerPawn::Interact()
 {
+	//Block input when selecting priority
+	if (m_bSelectingPriority)
+	{
+		return;
+	}
+
 	FHitResult HitResult;
-	const APlayerController* PlayerController = GetPlayerController();
+	APlayerController* PlayerController = GetPlayerController();
 	PlayerController->GetHitResultUnderCursor(ECollisionChannel::ECC_GameTraceChannel1, false, HitResult);
 
 	if (UInteractionShapeComponent* InteractionComp = Cast<UInteractionShapeComponent>(HitResult.GetComponent()))
@@ -119,7 +134,7 @@ void APlayerPawn::Interact()
 	}
 	else if(HitResult.bBlockingHit)
 	{
-		SendLocationOrder(HitResult.Location);
+		SendOrder(UOrderMoveToLocation::Create(this, HitResult.Location));
 	}
 }
 
@@ -132,8 +147,8 @@ void APlayerPawn::AddToSelection(USelectionComponent* SelectionComp, bool bIgnor
 {
 	ensureMsgf(IsValid(SelectionComp), TEXT("Invalid selection component added to selection!"));
 
-	const APlayerController* PlayerController = GetPlayerController();
-	const bool bClearSelection = bIgnoreModifierKeys || (!PlayerController->IsInputKeyDown(EKeys::LeftShift) && !PlayerController->IsInputKeyDown(EKeys::RightShift));
+	APlayerController* PlayerController = GetPlayerController();
+	const bool bClearSelection = bIgnoreModifierKeys || !IsAnyShiftDown(PlayerController);
 
 	if (!m_Selection.Contains(SelectionComp))
 	{
@@ -147,10 +162,12 @@ void APlayerPawn::AddToSelection(USelectionComponent* SelectionComp, bool bIgnor
 	}
 	else if (bClearSelection && m_Selection.Num() > 1)
 	{
+		//Don't deselect the one that was selected
 		m_Selection.RemoveSingle(SelectionComp);
 
 		ClearSelection();
 
+		//Add it back
 		m_Selection.Add(SelectionComp);
 	}
 }
@@ -179,23 +196,140 @@ void APlayerPawn::ClearSelection()
 	m_Selection.Empty();
 }
 
-void APlayerPawn::SendLocationOrder(const FVector& TargetLocation)
+void APlayerPawn::SendOrder(UOrderBase* Order)
 {
+	const bool bClearQueue = !IsAnyShiftDown();
+
+	//Select priority only if we want to add to the queue. There is no need to select it if there are no other orders.
+	if (!bClearQueue)
+	{
+		DisplayPriorityWidgetForOrders({ Order });
+	}
+	else
+	{
+		for (USelectionComponent* SelectionComp : m_Selection)
+		{
+			if (IsValid(SelectionComp))
+			{
+				AOrderQueueAIController* AIController = GetControllerFromSelectionComponent(SelectionComp);
+				if (IsValid(AIController))
+				{
+					AIController->AddOrder(Order->CreateCopy(AIController), bClearQueue);
+				}
+			}
+		}
+	}
+}
+
+void APlayerPawn::SendOrders(const TArray<UOrderBase*>& OrderTemplates)
+{
+	const bool bClearQueue = !IsAnyShiftDown();
+
+	//Select priority only if we want to add to the queue. There is no need to select it if there are no other orders.
+	if(!bClearQueue)
+	{
+		DisplayPriorityWidgetForOrders(OrderTemplates);
+	}
+	else
+	{
+		for (USelectionComponent* SelectionComp : m_Selection)
+		{
+			if (IsValid(SelectionComp))
+			{
+				AOrderQueueAIController* AIController = GetControllerFromSelectionComponent(SelectionComp);
+				if (IsValid(AIController))
+				{
+					AIController->ClearQueue();
+
+					for (UOrderBase* Order : OrderTemplates)
+					{
+						AIController->AddOrderWaiting(Order->CreateCopy(AIController));
+					}
+
+					AIController->FlushOrders();
+				}
+			}
+		}
+	}
+}
+
+bool APlayerPawn::IsAnyShiftDown(APlayerController* PlayerController) const
+{
+	if (!PlayerController)
+	{
+		PlayerController = GetPlayerController();
+	}
+
+	return PlayerController->IsInputKeyDown(EKeys::LeftShift) || PlayerController->IsInputKeyDown(EKeys::RightShift);
+}
+
+bool APlayerPawn::IsAnyControlDown(APlayerController* PlayerController) const
+{
+	if (!PlayerController)
+	{
+		PlayerController = GetPlayerController();
+	}
+
+	return PlayerController->IsInputKeyDown(EKeys::LeftControl) || PlayerController->IsInputKeyDown(EKeys::RightControl);
+}
+
+AOrderQueueAIController* APlayerPawn::GetControllerFromSelection(uint32 Index) const
+{
+	APawn* SelectedPawn = m_Selection[Index]->GetOwner<APawn>();
+	if (!IsValid(SelectedPawn))
+	{
+		return nullptr;
+	}
+
+	return Cast<AOrderQueueAIController>(SelectedPawn->GetController());
+}
+
+AOrderQueueAIController* APlayerPawn::GetControllerFromSelectionComponent(USelectionComponent* SelectionComp) const
+{
+	APawn* SelectedPawn = SelectionComp->GetOwner<APawn>();
+	if (!IsValid(SelectedPawn))
+	{
+		return nullptr;
+	}
+
+	return Cast<AOrderQueueAIController>(SelectedPawn->GetController());
+}
+
+void APlayerPawn::ConfirmPriority(int32 Priority)
+{
+	m_bSelectingPriority = false;
+
+	for (UOrderBase* Order : m_PriorityPendingOrders)
+	{
+		Order->Priority = Priority;
+	}
+
 	for (USelectionComponent* SelectionComp : m_Selection)
 	{
 		if (IsValid(SelectionComp))
 		{
-			APawn* SelectedPawn = SelectionComp->GetOwner<APawn>();
-			if (!IsValid(SelectedPawn))
-			{
-				continue;
-			}
-
-			AAIController* AIController = Cast<AAIController>(SelectedPawn->GetController());
+			AOrderQueueAIController* AIController = GetControllerFromSelectionComponent(SelectionComp);
 			if (IsValid(AIController))
 			{
-				AIController->MoveToLocation(TargetLocation);
+				for (UOrderBase* Order : m_PriorityPendingOrders)
+				{
+					AIController->AddOrderWaiting(Order->CreateCopy(AIController));
+				}
+
+				AIController->FlushOrders();
 			}
 		}
 	}
+
+	//GetPlayerController()->SetInputMode(FInputModeGameOnly());
+}
+
+void APlayerPawn::DisplayPriorityWidgetForOrders(const TArray<UOrderBase*>& Orders)
+{
+	m_bSelectingPriority = true;
+	m_PriorityPendingOrders = Orders;
+
+	//GetPlayerController()->SetInputMode(FInputModeUIOnly());
+
+	UUserWidget::CreateWidgetInstance(*GetPlayerController(), PrioritySelectionWidgetClass, FName("PrioritySelection"))->AddToViewport();
 }
